@@ -1,23 +1,14 @@
-import { PlaceholderPage } from "@/components/site/placeholder-page"
+import { ManagerDetail } from "@/components/managers/manager-detail"
+import { AppFooter } from "@/components/site/app-footer"
+import { AppHeader } from "@/components/site/app-header"
+import { Container } from "@/components/site/container"
 import { managers } from "@/lib/mock-data"
+
+export function generateStaticParams() {
+  return managers.map((manager) => ({ id: manager.id }))
+}
 
 export default async function ManagerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const manager = managers.find((m) => m.id === id)
-
-  return (
-    <PlaceholderPage
-      title={manager ? `${manager.name} 관리인` : "관리인 상세"}
-      description="관리인의 상세 프로필과 점검 이력을 준비하고 있습니다."
-      purpose={
-        manager
-          ? `${manager.regions} · 점검 경력 ${manager.years}년 · 점검 완료 ${manager.completed}건`
-          : "이 페이지는 개별 관리인의 상세 정보를 제공합니다."
-      }
-      backHref="/managers"
-      backLabel="관리인 목록으로 돌아가기"
-      nextHref="/inspection-request"
-      nextLabel="점검 요청으로 이동"
-    />
-  )
+  return <div className="flex min-h-screen flex-col bg-background"><AppHeader /><main className="flex-1 py-10 md:py-14"><Container><ManagerDetail id={id} /></Container></main><AppFooter /></div>
 }

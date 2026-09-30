@@ -1,13 +1,9 @@
-import { PlaceholderPage } from "@/components/site/placeholder-page"
+import { InspectionProgress } from "@/components/inspections/inspection-progress"
+import { AppFooter } from "@/components/site/app-footer"
+import { AppHeader } from "@/components/site/app-header"
+import { Container } from "@/components/site/container"
 
-export default function InspectionProgressPage() {
-  return (
-    <PlaceholderPage
-      title="점검 진행 상태"
-      description="현장 점검의 실시간 진행 상태를 확인하는 기능을 준비하고 있습니다."
-      purpose="이 페이지는 배정된 관리인과 점검 진행 단계를 보여줍니다."
-      nextHref="/inspection-result"
-      nextLabel="점검 결과 보기"
-    />
-  )
+export default async function InspectionProgressPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
+  const { id } = await searchParams
+  return <div className="flex min-h-screen flex-col bg-background"><AppHeader /><main className="flex-1 py-10 md:py-14"><Container><InspectionProgress id={id ?? null} /></Container></main><AppFooter /></div>
 }

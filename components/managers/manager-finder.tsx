@@ -1,11 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { BadgeCheck, BookmarkCheck, Briefcase, Calendar, CheckCircle2, MapPin, RotateCcw, Search, Star, Trash2 } from "lucide-react"
-import { managers, quotes } from "@/lib/mock-data"
+import { managers as seedManagers, quotes } from "@/lib/mock-data"
+import type { Manager } from "@/lib/mock-data"
+import { createLocalManager, localManagersStorageKey, managersChangedEvent, notifyManagersChanged, readLocalManagers } from "@/lib/local-managers"
 import { clearSavedManagers, readSavedManagers, removeSavedManager, saveManager, writeSavedManagers } from "@/lib/saved-managers"
 import type { SavedManager } from "@/lib/saved-managers"
 import { buildManagerShareText } from "@/lib/manager-share"
@@ -22,6 +24,11 @@ export function ManagerFinder() {
   const [savedEntries, setSavedEntries] = useState<SavedManager[]>([])
   const [storageNotice, setStorageNotice] = useState<string | null>(null)
   const [pendingDeletion, setPendingDeletion] = useState<string | "all" | null>(null)
+  const [managerItems, setManagerItems] = useState<Manager[]>(seedManagers)
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [newManager, setNewManager] = useState({ name: "", regions: "", years: "", completed: "", rating: "", reviews: "" })
 
   useEffect(() => {
     const queryRegion = searchParams.get("region")
@@ -30,27 +37,35 @@ export function ManagerFinder() {
   }, [searchParams])
 
   useEffect(() => {
+    const loadManagers = () => setManagerItems(readLocalManagers(window.localStorage, seedManagers))
+    loadManagers()
+    window.addEventListener(managersChangedEvent, loadManagers)
+    window.addEventListener("storage", loadManagers)
     const loaded = readSavedManagers(window.localStorage)
-    const stored = loaded.filter((entry) => managers.some((manager) => manager.id === entry.managerId))
+    const stored = loaded.filter((entry) => readLocalManagers(window.localStorage, seedManagers).some((manager) => manager.id === entry.managerId))
     if (stored.length !== loaded.length) writeSavedManagers(window.localStorage, stored)
     setSavedEntries(stored)
     if (stored[0]) setSelectedId(stored[0].managerId)
+    return () => {
+      window.removeEventListener(managersChangedEvent, loadManagers)
+      window.removeEventListener("storage", loadManagers)
+    }
   }, [])
 
   const filteredManagers = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase()
 
-    return managers.filter((manager) => {
+    return managerItems.filter((manager) => {
       const matchesRegion = region === "전체" || manager.regions.includes(region)
       const matchesKeyword = !normalizedKeyword || [manager.name, manager.regions].some((value) => value.toLowerCase().includes(normalizedKeyword))
       return matchesRegion && matchesKeyword
     })
-  }, [keyword, region])
+  }, [keyword, managerItems, region])
 
-  const selectedManager = managers.find((manager) => manager.id === selectedId)
+  const selectedManager = managerItems.find((manager) => manager.id === selectedId)
   const selectedQuote = quotes.find((quote) => quote.managerId === selectedId)
   const savedManagerDetails = savedEntries.flatMap((entry) => {
-    const manager = managers.find((item) => item.id === entry.managerId)
+    const manager = managerItems.find((item) => item.id === entry.managerId)
     return manager ? [{ entry, manager, quote: quotes.find((item) => item.managerId === manager.id) }] : []
   })
 
@@ -106,8 +121,36 @@ export function ManagerFinder() {
 
   function reselectManager(managerId: string) {
     setSelectedId(managerId)
-    const manager = managers.find((item) => item.id === managerId)
+    const manager = managerItems.find((item) => item.id === managerId)
     setStorageNotice(manager ? `${manager.name} 관리인을 다시 선택했어요.` : "저장한 관리인을 다시 선택했어요.")
+  }
+
+  function submitCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = newManager.name.trim()
+    const regions = newManager.regions.trim()
+    const years = Number(newManager.years)
+    const completed = Number(newManager.completed)
+    const rating = Number(newManager.rating)
+    const reviews = Number(newManager.reviews)
+    if (!name || !regions || !Number.isInteger(years) || years < 0 || !Number.isInteger(completed) || completed < 0 || !Number.isFinite(rating) || rating < 0 || rating > 5 || !Number.isInteger(reviews) || reviews < 0) {
+      setCreateError("이름·활동 지역을 입력하고, 경력·완료 건수·후기 수는 0 이상의 정수, 평점은 0~5로 입력해주세요.")
+      return
+    }
+    setIsCreating(true)
+    const result = createLocalManager(window.localStorage, seedManagers, { name, regions, years, completed, rating, reviews, photo: "/placeholder.svg" })
+    if (!result.saved) {
+      setCreateError("브라우저에 저장하지 못했습니다. 저장소 설정을 확인해주세요.")
+      setIsCreating(false)
+      return
+    }
+    setManagerItems(result.items)
+    notifyManagersChanged()
+    setNewManager({ name: "", regions: "", years: "", completed: "", rating: "", reviews: "" })
+    setShowCreateForm(false)
+    setCreateError(null)
+    setStorageNotice(`${name} 관리인을 등록했어요.`)
+    setIsCreating(false)
   }
 
   return (
@@ -121,8 +164,24 @@ export function ManagerFinder() {
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">활동 지역과 이름으로 관리인을 찾고, 점검 경험과 예시 견적을 비교할 수 있습니다.</p>
           </div>
-          <p className="rounded-md bg-surface-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">현재는 비교를 위한 예시 데이터입니다.</p>
+          <button type="button" onClick={() => { setShowCreateForm((value) => !value); setCreateError(null) }} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-bold text-foreground hover:bg-muted">
+            {showCreateForm ? "등록 닫기" : "관리인 등록"}
+          </button>
         </div>
+
+        {showCreateForm ? (
+          <form onSubmit={submitCreate} className="mt-5 rounded-lg border border-border bg-surface-muted p-4" noValidate>
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-base font-bold text-foreground">관리인 등록</h2><p className="text-xs text-muted-foreground">필수 항목을 입력하면 목록에 바로 반영됩니다.</p></div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ["name", "이름", "예: 홍길동", "text"], ["regions", "활동 지역", "예: 전남 순천시", "text"], ["years", "점검 경력(년)", "0", "number"],
+                ["completed", "완료 건수", "0", "number"], ["rating", "평점(0~5)", "4.8", "number"], ["reviews", "후기 수", "0", "number"],
+              ].map(([field, label, placeholder, type]) => <label key={field} className="text-sm font-medium text-foreground">{label}<input required value={newManager[field as keyof typeof newManager]} onChange={(event) => setNewManager((value) => ({ ...value, [field]: event.target.value }))} type={type} min={type === "number" ? "0" : undefined} max={field === "rating" ? "5" : undefined} step={field === "rating" ? "0.1" : undefined} placeholder={placeholder} className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-brand/30" /></label>)}
+            </div>
+            {createError ? <p className="mt-3 text-sm font-medium text-status-danger" role="alert">{createError}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-2"><button type="submit" disabled={isCreating} className="inline-flex min-h-11 items-center rounded-lg bg-brand px-4 text-sm font-bold text-brand-foreground hover:bg-brand-hover disabled:opacity-60">{isCreating ? "저장 중…" : "등록하기"}</button><button type="button" onClick={() => setShowCreateForm(false)} className="inline-flex min-h-11 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-muted">취소</button></div>
+          </form>
+        ) : null}
 
         <div className="mt-6 grid gap-4 border-t border-border pt-5 lg:grid-cols-[minmax(0,1fr)_auto]">
           <div>

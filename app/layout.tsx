@@ -1,16 +1,8 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
-import { Noto_Sans_KR } from 'next/font/google'
 import './globals.css'
 import { V1ProgressPanel } from '@/components/dev/v1-progress-panel'
 import { ProjectChatbot } from '@/components/site/project-chatbot'
-
-const notoSansKr = Noto_Sans_KR({
-  subsets: ['latin'],
-  weight: ['400', '500', '700', '900'],
-  variable: '--font-noto-sans-kr',
-  display: 'swap',
-})
 
 export const metadata: Metadata = {
   title: '빈집지킴이 | 멀리 있어도, 늘 가까이',
@@ -30,11 +22,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ko" className={`${notoSansKr.variable} bg-background`}>
+    <html lang="ko" className="bg-background">
       <body className="font-sans antialiased">
         {children}
-        <ProjectChatbot />
-        <V1ProgressPanel />
+        {process.env.OPENAI_API_KEY ? <ProjectChatbot /> : null}
+        {process.env.NODE_ENV !== 'production' ? <V1ProgressPanel /> : null}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

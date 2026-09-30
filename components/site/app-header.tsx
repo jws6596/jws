@@ -9,9 +9,6 @@ import { Container } from "./container"
 import { cn } from "@/lib/utils"
 
 const navItems = [
-  { label: "서비스 소개", href: "/about" },
-  { label: "이용 방법", href: "/how-it-works" },
-  { label: "점검 사례", href: "/cases" },
   { label: "관리인 찾기", href: "/managers" },
 ]
 
@@ -53,12 +50,6 @@ export function AppHeader() {
             >
               <User className="size-4" />내 점검
             </Link>
-            <Link
-              href="/login"
-              className="inline-flex h-10 items-center rounded-lg bg-brand px-4 text-sm font-medium text-brand-foreground transition-colors hover:bg-brand-hover"
-            >
-              로그인
-            </Link>
           </div>
 
           <button
@@ -87,20 +78,13 @@ export function AppHeader() {
                 {item.label}
               </Link>
             ))}
-            <div className="my-2 grid grid-cols-2 gap-2">
+            <div className="my-2">
               <Link
                 href="/my-inspections"
                 onClick={() => setOpen(false)}
                 className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium text-foreground"
               >
                 <User className="size-4" />내 점검
-              </Link>
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-brand text-sm font-medium text-brand-foreground"
-              >
-                로그인
               </Link>
             </div>
           </nav>

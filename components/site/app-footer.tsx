@@ -4,10 +4,9 @@ import { Logo } from "./logo"
 import { Container } from "./container"
 
 const footerLinks = [
-  { label: "회사소개", href: "/about" },
-  { label: "이용약관", href: "/terms" },
-  { label: "개인정보처리방침", href: "/privacy" },
-  { label: "고객센터", href: "/contact" },
+  { label: "점검 요청", href: "/inspection-request" },
+  { label: "내 점검", href: "/my-inspections" },
+  { label: "관리인 찾기", href: "/managers" },
 ]
 
 export function AppFooter() {

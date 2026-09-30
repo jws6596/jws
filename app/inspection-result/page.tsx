@@ -1,13 +1,9 @@
-import { PlaceholderPage } from "@/components/site/placeholder-page"
+import { InspectionResult } from "@/components/inspections/inspection-result"
+import { AppFooter } from "@/components/site/app-footer"
+import { AppHeader } from "@/components/site/app-header"
+import { Container } from "@/components/site/container"
 
-export default function InspectionResultPage() {
-  return (
-    <PlaceholderPage
-      title="정비 우선순위 결과"
-      description="AI가 분석한 정비 우선순위 리포트를 준비하고 있습니다."
-      purpose="이 페이지는 점검 사진과 함께 항목별 정비 우선순위를 제공합니다."
-      nextHref="/my-inspections"
-      nextLabel="내 점검 보기"
-    />
-  )
+export default async function InspectionResultPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
+  const { id } = await searchParams
+  return <div className="flex min-h-screen flex-col bg-background"><AppHeader /><main className="flex-1 py-10 md:py-14"><Container><InspectionResult id={id ?? null} /></Container></main><AppFooter /></div>
 }

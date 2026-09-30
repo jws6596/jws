@@ -1,13 +1,8 @@
-import { PlaceholderPage } from "@/components/site/placeholder-page"
+import { InspectionRequestForm } from "@/components/inspections/inspection-request-form"
+import { AppFooter } from "@/components/site/app-footer"
+import { AppHeader } from "@/components/site/app-header"
+import { Container } from "@/components/site/container"
 
 export default function InspectionRequestPage() {
-  return (
-    <PlaceholderPage
-      title="점검 요청"
-      description="원하는 일정으로 점검을 요청하는 기능을 준비하고 있습니다."
-      purpose="이 페이지는 주소, 희망 일정, 요청 사항을 입력해 점검을 요청합니다."
-      nextHref="/managers"
-      nextLabel="관리인 찾기"
-    />
-  )
+  return <div className="flex min-h-screen flex-col bg-background"><AppHeader /><main className="flex-1 py-10 md:py-14"><Container><InspectionRequestForm /></Container></main><AppFooter /></div>
 }

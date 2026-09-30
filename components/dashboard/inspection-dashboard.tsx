@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, BookmarkCheck, CalendarClock, ClipboardList, RefreshCw, Search, WalletCards } from "lucide-react"
-import { managers, quotes } from "@/lib/mock-data"
+import { managers as seedManagers, quotes } from "@/lib/mock-data"
+import type { Manager } from "@/lib/mock-data"
+import { managersChangedEvent, readLocalManagers } from "@/lib/local-managers"
 import { readSavedManagers } from "@/lib/saved-managers"
 import type { SavedManager } from "@/lib/saved-managers"
+import { calculateInspectionStats, inspectionsChangedEvent, readInspections } from "@/lib/inspections"
+import type { Inspection } from "@/lib/inspections"
 
 type DashboardState = "loading" | "ready" | "error"
 
@@ -23,14 +27,19 @@ function formatSavedAt(savedAt: number) {
 export function InspectionDashboard() {
   const [savedEntries, setSavedEntries] = useState<SavedManager[]>([])
   const [state, setState] = useState<DashboardState>("loading")
+  const [managerItems, setManagerItems] = useState<Manager[]>(seedManagers)
+  const [inspectionItems, setInspectionItems] = useState<Inspection[]>([])
 
   const loadDashboard = useCallback(() => {
     setState("loading")
 
     try {
+      const currentManagers = readLocalManagers(window.localStorage, seedManagers)
       const entries = readSavedManagers(window.localStorage)
-        .filter((entry) => managers.some((manager) => manager.id === entry.managerId))
+        .filter((entry) => currentManagers.some((manager) => manager.id === entry.managerId))
+      setManagerItems(currentManagers)
       setSavedEntries(entries)
+      setInspectionItems(readInspections(window.localStorage))
       setState("ready")
     } catch {
       setState("error")
@@ -40,16 +49,19 @@ export function InspectionDashboard() {
   useEffect(() => {
     loadDashboard()
     window.addEventListener("storage", loadDashboard)
-    return () => window.removeEventListener("storage", loadDashboard)
+    window.addEventListener(managersChangedEvent, loadDashboard)
+    window.addEventListener(inspectionsChangedEvent, loadDashboard)
+    return () => { window.removeEventListener("storage", loadDashboard); window.removeEventListener(managersChangedEvent, loadDashboard); window.removeEventListener(inspectionsChangedEvent, loadDashboard) }
   }, [loadDashboard])
 
   const savedManagers = useMemo(() => savedEntries.flatMap((entry) => {
-    const manager = managers.find((item) => item.id === entry.managerId)
+    const manager = managerItems.find((item) => item.id === entry.managerId)
     return manager ? [{ entry, manager, quote: quotes.find((item) => item.managerId === manager.id) }] : []
-  }), [savedEntries])
+  }), [managerItems, savedEntries])
 
   const quoteCount = savedManagers.filter(({ quote }) => quote).length
   const latestSaved = savedManagers[0]
+  const inspectionStats = calculateInspectionStats(inspectionItems)
 
   const stats = [
     {
@@ -62,8 +74,8 @@ export function InspectionDashboard() {
     {
       label: "비교 가능한 견적",
       value: `${quoteCount}건`,
-      description: quoteCount ? "저장한 관리인의 예시 견적입니다." : "관리인을 선택하면 견적을 비교할 수 있어요.",
-      href: "/quotes",
+      description: quoteCount ? "관리인 상세에서 예시 견적을 확인할 수 있어요." : "관리인을 선택하면 예시 견적을 확인할 수 있어요.",
+      href: "/managers",
       icon: WalletCards,
     },
     {
@@ -72,6 +84,13 @@ export function InspectionDashboard() {
       description: latestSaved ? formatSavedAt(latestSaved.entry.savedAt) : "관리인을 선택해 기록을 시작하세요.",
       href: latestSaved ? `/managers/${latestSaved.manager.id}` : "/managers",
       icon: CalendarClock,
+    },
+    {
+      label: "전체 점검",
+      value: `${inspectionStats.total}건`,
+      description: inspectionStats.total ? `진행 ${inspectionStats.active}건 · 완료 ${inspectionStats.completed}건` : "아직 요청한 점검이 없어요.",
+      href: "/my-inspections",
+      icon: ClipboardList,
     },
   ]
 
@@ -99,7 +118,7 @@ export function InspectionDashboard() {
         </section>
       ) : (
         <>
-          <section aria-label="점검 준비 통계" className="grid gap-4 md:grid-cols-3">
+          <section aria-label="점검 준비 통계" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {stats.map(({ label, value, description, href, icon: Icon }) => (
               <Link key={label} href={href} className="group rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-brand/40 hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                 <div className="flex items-start justify-between gap-3">
@@ -158,9 +177,8 @@ export function InspectionDashboard() {
               <p className="text-sm font-bold text-brand">빠른 실행</p>
               <h2 id="quick-actions-title" className="mt-1 text-xl font-bold text-foreground">다음 작업을 시작하세요</h2>
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <Link href="/managers" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-brand px-4 text-sm font-bold text-brand-foreground hover:bg-brand-hover"><Search className="size-4" aria-hidden="true" />관리인 찾기</Link>
-              <Link href="/quotes" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-bold text-foreground hover:bg-muted"><WalletCards className="size-4" aria-hidden="true" />견적 비교</Link>
               <Link href="/inspection-request" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-sm font-bold text-foreground hover:bg-muted"><CalendarClock className="size-4" aria-hidden="true" />점검 요청</Link>
             </div>
           </section>

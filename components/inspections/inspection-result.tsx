@@ -1,0 +1,21 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import Link from "next/link"
+import { ClipboardCheck } from "lucide-react"
+import { managers } from "@/lib/mock-data"
+import { inspectionResultStatusLabel, readInspections, type Inspection } from "@/lib/inspections"
+import { InspectionResultForm } from "./inspection-result-form"
+
+export function InspectionResult({ id }: { id: string | null }) {
+  const [inspection, setInspection] = useState<Inspection | null>(null)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => { setInspection(readInspections(window.localStorage).find((item) => item.id === id) ?? null) }, [id])
+  if (!id || !inspection) return <section className="rounded-xl border border-border bg-card p-8 text-center shadow-sm"><h1 className="text-xl font-bold">확인할 점검 결과를 찾지 못했습니다.</h1><p className="mt-2 text-sm text-muted-foreground">내 점검 목록에서 요청을 선택해주세요.</p><Link href="/my-inspections" className="mt-5 inline-flex min-h-11 items-center rounded-lg bg-brand px-4 text-sm font-bold text-brand-foreground">내 점검 보기</Link></section>
+  if (!inspection.result) return <section className="rounded-xl border border-border bg-card p-8 text-center shadow-sm"><h1 className="text-xl font-bold">점검 결과가 아직 입력되지 않았습니다.</h1><p className="mt-2 text-sm text-muted-foreground">점검 진행 화면에서 결과를 입력한 뒤 완료 처리할 수 있습니다.</p><Link href={`/inspection-progress?id=${inspection.id}`} className="mt-5 inline-flex min-h-11 items-center rounded-lg bg-brand px-4 text-sm font-bold text-brand-foreground">결과 입력으로 이동</Link></section>
+  const manager = managers.find((item) => item.id === inspection.managerId)
+  const result = inspection.result
+  return <section className="mx-auto max-w-3xl rounded-xl border border-border bg-card p-5 shadow-sm sm:p-7"><div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-start gap-3"><span className="flex size-11 items-center justify-center rounded-lg bg-brand/10 text-brand"><ClipboardCheck className="size-5" /></span><div><p className="text-sm font-bold text-brand">저장된 점검 결과</p><h1 className="mt-1 text-2xl font-bold">점검 결과 요약</h1></div></div>{!editing && <button onClick={() => setEditing(true)} className="min-h-11 rounded-lg border border-border bg-background px-4 text-sm font-bold hover:bg-muted">결과 수정</button>}</div>
+    {editing ? <InspectionResultForm inspection={inspection} editing onSaved={(updated) => { setInspection(updated); setEditing(false) }} /> : <><dl className="mt-6 grid gap-4 rounded-lg border border-border p-4 sm:grid-cols-2"><div className="min-w-0"><dt className="text-sm text-muted-foreground">점검 대상</dt><dd className="mt-1 break-words font-bold">{inspection.address}</dd></div><div><dt className="text-sm text-muted-foreground">담당 관리인</dt><dd className="mt-1 font-bold">{manager?.name ?? "미지정"} 관리인</dd></div><div><dt className="text-sm text-muted-foreground">점검 완료일</dt><dd className="mt-1 font-bold">{new Date(result.inspectedAt).toLocaleString("ko-KR")}</dd></div><div><dt className="text-sm text-muted-foreground">전체 상태</dt><dd className="mt-1 font-bold">{inspectionResultStatusLabel[result.overallStatus]}</dd></div></dl><h2 className="mt-7 text-lg font-bold">점검 항목별 결과</h2><ul className="mt-3 space-y-3">{result.items.map((item) => <li key={item.title} className="rounded-lg border border-border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="break-words font-bold">{item.title}</p><span className="rounded-full bg-brand/10 px-3 py-1 text-sm font-bold text-brand">{inspectionResultStatusLabel[item.status]}</span></div>{item.note && <p className="mt-2 break-words text-sm text-muted-foreground">{item.note}</p>}</li>)}</ul><div className="mt-6 grid gap-4 sm:grid-cols-2"><section className="min-w-0 rounded-lg bg-surface-muted p-4"><h2 className="font-bold">점검 메모</h2><p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{result.inspectorNote}</p></section><section className="min-w-0 rounded-lg bg-surface-muted p-4"><h2 className="font-bold">필요한 조치사항</h2><p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">{result.recommendedActions}</p></section></div><Link href="/my-inspections" className="mt-7 inline-flex min-h-11 items-center rounded-lg bg-brand px-4 text-sm font-bold text-brand-foreground">내 점검으로 돌아가기</Link></>}
+  </section>
+}
