@@ -8,8 +8,9 @@ import type { Manager } from "@/lib/mock-data"
 import { managersChangedEvent, readLocalManagers } from "@/lib/local-managers"
 import { readSavedManagers } from "@/lib/saved-managers"
 import type { SavedManager } from "@/lib/saved-managers"
-import { calculateInspectionStats, inspectionsChangedEvent, readInspections } from "@/lib/inspections"
+import { calculateInspectionStats, calculateManagerScheduleOverview, calculateScheduleStats, getScheduleConflictGroups, inspectionsChangedEvent, readInspections } from "@/lib/inspections"
 import type { Inspection } from "@/lib/inspections"
+import { InspectionAlerts } from "@/components/inspections/inspection-alerts"
 
 type DashboardState = "loading" | "ready" | "error"
 
@@ -62,6 +63,9 @@ export function InspectionDashboard() {
   const quoteCount = savedManagers.filter(({ quote }) => quote).length
   const latestSaved = savedManagers[0]
   const inspectionStats = calculateInspectionStats(inspectionItems)
+  const scheduleStats = calculateScheduleStats(inspectionItems)
+  const conflictGroups = getScheduleConflictGroups(inspectionItems)
+  const workloadOverview = calculateManagerScheduleOverview(managerItems, inspectionItems)
 
   const stats = [
     {
@@ -92,6 +96,13 @@ export function InspectionDashboard() {
       href: "/my-inspections",
       icon: ClipboardList,
     },
+    {
+      label: "일정 미배정",
+      value: `${scheduleStats.unassigned}건`,
+      description: scheduleStats.unassigned ? "담당 관리인과 일정을 지정해주세요." : "모든 진행 점검에 일정이 있습니다.",
+      href: "/my-inspections",
+      icon: CalendarClock,
+    },
   ]
 
   return (
@@ -118,7 +129,7 @@ export function InspectionDashboard() {
         </section>
       ) : (
         <>
-          <section aria-label="점검 준비 통계" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <section aria-label="점검 준비 통계" className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             {stats.map(({ label, value, description, href, icon: Icon }) => (
               <Link key={label} href={href} className="group rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-brand/40 hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
                 <div className="flex items-start justify-between gap-3">
@@ -132,6 +143,17 @@ export function InspectionDashboard() {
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-brand">자세히 보기 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" /></span>
               </Link>
             ))}
+          </section>
+
+          <InspectionAlerts limit={5} />
+
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="manager-workload-title"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold text-brand">관리인 일정 현황</p><h2 id="manager-workload-title" className="mt-1 text-xl font-bold text-foreground">운영 요약</h2><p className="mt-1 text-sm text-muted-foreground">등록 관리인 {managerItems.length}명 · 오늘 예정 {workloadOverview.summaries.reduce((count, item) => count + item.today, 0)}건 · 미배정 {workloadOverview.unassignedCount}건 · 충돌 {conflictGroups.length}건</p></div><Link href="/managers/schedule-summary" className="inline-flex min-h-10 items-center rounded-lg border border-border bg-background px-3 text-sm font-bold text-foreground hover:bg-muted">관리인별 현황 보기</Link></div></section>
+
+          <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="upcoming-inspections-title">
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold text-brand">예정 점검</p><h2 id="upcoming-inspections-title" className="mt-1 text-xl font-bold text-foreground">가까운 일정</h2></div><Link href="/inspections/schedule" className="inline-flex min-h-10 items-center rounded-lg border border-border bg-background px-3 text-sm font-bold text-foreground hover:bg-muted">전체 일정 보기</Link></div>
+            <p className="mt-2 text-sm text-muted-foreground">일정 확정 {scheduleStats.scheduled}건 · 점검 중 {scheduleStats.inProgress}건 · 완료 {inspectionStats.completed}건</p>
+            <div className={`mt-4 rounded-lg p-3 text-sm ${conflictGroups.length ? "border border-status-danger/30 bg-status-danger/10" : "bg-surface-muted"}`}><p className="font-bold">{conflictGroups.length ? `일정 충돌 ${conflictGroups.length}건` : "일정 충돌 없음"}</p>{conflictGroups.length ? <ul className="mt-1 space-y-1 text-muted-foreground">{conflictGroups.slice(0, 3).map((group) => { const manager = managerItems.find((item) => item.id === group.managerId); return <li key={`${group.managerId}-${group.scheduledDate}-${group.scheduledTime}`} className="break-words">{group.scheduledDate} {group.scheduledTime} · {manager?.name ?? "현재 등록되지 않은 관리인"} 관리인 · 점검 {group.inspections.length}건</li> })}</ul> : <p className="mt-1 text-muted-foreground">현재 저장된 일정에서 같은 관리인·날짜·시간 조합이 없습니다.</p>}</div>
+            {scheduleStats.upcoming.length ? <ul className="mt-5 divide-y divide-border rounded-lg border border-border">{scheduleStats.upcoming.slice(0, 5).map((inspection) => { const manager = managerItems.find((item) => item.id === inspection.assignedManagerId); return <li key={inspection.id}><Link href={`/inspection-progress?id=${inspection.id}`} className="block p-4 hover:bg-muted"><p className="break-words font-bold text-foreground">{inspection.address}</p><p className="mt-1 break-words text-sm text-muted-foreground">{inspection.scheduledDate} {inspection.scheduledTime} · {manager?.name ?? "현재 등록되지 않은 관리인"} 관리인</p></Link></li> })}</ul> : <p className="mt-5 rounded-lg bg-surface-muted p-5 text-sm text-muted-foreground">현재 예정된 점검이 없습니다.</p>}
           </section>
 
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="recent-activity-title">
