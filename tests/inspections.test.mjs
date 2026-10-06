@@ -18,6 +18,8 @@ import {
   getScheduleHistory,
   getScheduleConflictGroups,
   getInspectionAlertCounts,
+  getOverdueInspections,
+  isInspectionOverdue,
   sortInspectionSchedule,
   inspectionStatusOrder,
   inspectionsStorageKey,
@@ -406,7 +408,7 @@ test("관리인 일정 집계는 원본 배열을 변경하지 않고 완료 기
 
 test("알림은 고정 now 기준 오늘·내일·2~3일 이내만 분류하고 안정 ID를 사용한다", () => {
   const now = new Date("2030-03-20T16:00:00")
-  const today = scheduledInspection("오늘", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "09:00" })
+  const today = scheduledInspection("오늘", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "17:00" })
   const tomorrow = scheduledInspection("내일", { ...assignment, scheduledDate: "2030-03-21" })
   const day2 = scheduledInspection("이틀 후", { ...assignment, scheduledDate: "2030-03-22" })
   const day3 = scheduledInspection("사흘 후", { ...assignment, scheduledDate: "2030-03-23" })
@@ -414,16 +416,16 @@ test("알림은 고정 now 기준 오늘·내일·2~3일 이내만 분류하고 
   const alerts = createInspectionAlerts([today, tomorrow, day2, day3, day4], [{ id: "kim-hyeonsu" }], now)
   assert.deepEqual(alerts.map((alert) => [alert.type, alert.inspectionId]), [["today", today.id], ["tomorrow", tomorrow.id], ["upcoming", day2.id], ["upcoming", day3.id]])
   assert.equal(alerts[0].id, `alert-${today.id}-today`)
-  assert.deepEqual(getInspectionAlertCounts(alerts), { conflict: 0, today: 1, tomorrow: 1, upcoming: 2 })
+  assert.deepEqual(getInspectionAlertCounts(alerts), { conflict: 0, overdue: 0, today: 1, tomorrow: 1, upcoming: 2 })
 })
 
-test("완료·Legacy·과거 일정은 날짜 알림에서 제외하고 원본은 변경하지 않는다", () => {
+test("완료·Legacy는 날짜 알림에서 제외하고 과거 미완료는 OVERDUE로 분류하며 원본은 변경하지 않는다", () => {
   const completed = { ...scheduledInspection("완료", { ...assignment, scheduledDate: "2030-03-20" }), status: "completed" }
   const legacy = createInspection({ ...input, address: "Legacy" })
   const past = scheduledInspection("과거", { ...assignment, scheduledDate: "2030-03-19" })
   const items = [completed, legacy, past]
   const original = structuredClone(items)
-  assert.deepEqual(createInspectionAlerts(items, [{ id: "kim-hyeonsu" }], new Date("2030-03-20T16:00:00")), [])
+  assert.deepEqual(createInspectionAlerts(items, [{ id: "kim-hyeonsu" }], new Date("2030-03-20T16:00:00")).map((alert) => [alert.type, alert.inspectionId]), [["overdue", past.id]])
   assert.deepEqual(items, original)
 })
 
@@ -446,4 +448,61 @@ test("일정 변경·완료 처리·충돌 해소는 별도 저장 없이 알림
   assert.ok(createInspectionAlerts([first, changed], [{ id: "kim-hyeonsu" }], now).some((alert) => alert.inspectionId === changed.id && alert.type === "tomorrow"))
   const completed = { ...first, status: "completed" }
   assert.equal(createInspectionAlerts([completed, changed], [{ id: "kim-hyeonsu" }], now).some((alert) => alert.inspectionId === first.id && alert.type === "today"), false)
+})
+
+test("지난 미완료 판정은 고정 now의 어제·오늘 시간 경과만 포함하고 완료·Legacy·일정 없음은 제외한다", () => {
+  const now = new Date("2030-03-20T14:00:00")
+  const yesterday = scheduledInspection("어제", { ...assignment, scheduledDate: "2030-03-19", scheduledTime: "10:00" })
+  const todayPast = scheduledInspection("오늘 지남", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "10:00" })
+  const todayFuture = scheduledInspection("오늘 남음", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "15:00" })
+  const completed = { ...yesterday, id: "completed-past", status: "completed" }
+  const legacy = createInspection({ ...input, address: "Legacy" })
+  const items = [yesterday, todayPast, todayFuture, completed, legacy]
+  const original = structuredClone(items)
+  assert.equal(isInspectionOverdue(yesterday, now), true)
+  assert.equal(isInspectionOverdue(todayPast, now), true)
+  assert.equal(isInspectionOverdue(todayFuture, now), false)
+  assert.deepEqual(getOverdueInspections(items, now).map((item) => item.address), ["어제", "오늘 지남"])
+  assert.deepEqual(items, original)
+})
+
+test("알림은 지난 미완료를 TODAY와 중복하지 않고 충돌 다음 우선순위 및 stable ID를 유지한다", () => {
+  const now = new Date("2030-03-20T14:00:00")
+  const first = scheduledInspection("충돌 지난 1", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "10:00" })
+  const second = scheduledInspection("충돌 지난 2", { ...assignment, scheduledDate: "2030-03-20", scheduledTime: "10:00" })
+  const missing = scheduledInspection("삭제 관리인 지난", { ...assignment, assignedManagerId: "deleted-manager", scheduledDate: "2030-03-19", scheduledTime: "10:00" })
+  const alerts = createInspectionAlerts([first, second, missing], [{ id: "kim-hyeonsu" }], now)
+  assert.deepEqual(alerts.map((alert) => alert.type), ["conflict", "conflict", "overdue", "overdue", "overdue"])
+  assert.equal(alerts.filter((alert) => alert.inspectionId === first.id && alert.type === "today").length, 0)
+  assert.ok(alerts.some((alert) => alert.id === `alert-${first.id}-overdue`))
+  assert.ok(alerts.some((alert) => alert.inspectionId === missing.id && alert.managerId === "deleted-manager"))
+})
+
+test("지난 미완료 일정의 완료 및 오늘·내일 재조정은 알림을 현재 일정으로 바꾼다", () => {
+  const now = new Date("2030-03-20T14:00:00")
+  const overdue = scheduledInspection("재조정", { ...assignment, scheduledDate: "2030-03-19", scheduledTime: "10:00" })
+  assert.equal(createInspectionAlerts([overdue], [{ id: "kim-hyeonsu" }], now)[0].type, "overdue")
+  const today = { ...overdue, scheduledDate: "2030-03-20", scheduledTime: "15:00" }
+  assert.equal(createInspectionAlerts([today], [{ id: "kim-hyeonsu" }], now)[0].type, "today")
+  const tomorrow = { ...today, scheduledDate: "2030-03-21", scheduledTime: "10:00" }
+  assert.equal(createInspectionAlerts([tomorrow], [{ id: "kim-hyeonsu" }], now)[0].type, "tomorrow")
+  const completed = { ...overdue, status: "completed" }
+  assert.deepEqual(createInspectionAlerts([completed], [{ id: "kim-hyeonsu" }], now), [])
+})
+
+test("일정 탐색의 지난 미완료 필터는 고정 now 기준으로 Legacy와 미래 일정을 제외한다", () => {
+  const now = new Date("2030-03-20T14:00:00")
+  const overdue = scheduledInspection("지난 미완료", { ...assignment, scheduledDate: "2030-03-19", scheduledTime: "10:00" })
+  const future = scheduledInspection("미래", { ...assignment, scheduledDate: "2030-03-21", scheduledTime: "10:00" })
+  const legacy = createInspection({ ...input, address: "Legacy" })
+  assert.deepEqual(filterInspectionSchedule([overdue, future, legacy], { ...defaultScheduleExplorerFilters, overdueOnly: true }, now).map((item) => item.address), ["지난 미완료"])
+})
+
+test("관리인 요약은 지난 미완료를 운영 현황으로만 집계하고 필터링한다", () => {
+  const now = new Date("2030-03-20T14:00:00")
+  const overdue = scheduledInspection("지난 미완료", { ...assignment, scheduledDate: "2030-03-19", scheduledTime: "10:00" })
+  const future = scheduledInspection("내일", { ...assignment, scheduledDate: "2030-03-21", scheduledTime: "10:00" })
+  const summary = createManagerScheduleSummary([{ id: "kim-hyeonsu" }], [overdue, future], now)
+  assert.equal(summary[0].overdue, 1)
+  assert.equal(filterManagerScheduleSummary(summary, "overdue").length, 1)
 })

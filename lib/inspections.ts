@@ -173,10 +173,11 @@ export type ScheduleExplorerFilters = {
   status: "all" | InspectionStatus
   query: string
   conflictOnly: boolean
+  overdueOnly: boolean
 }
 
 export type ScheduleSortDirection = "ascending" | "descending"
-export type ManagerWorkloadFilter = "all" | "has-schedule" | "today" | "conflict"
+export type ManagerWorkloadFilter = "all" | "has-schedule" | "today" | "overdue" | "conflict"
 
 export type ManagerScheduleSummary = {
   managerId: string
@@ -186,6 +187,7 @@ export type ManagerScheduleSummary = {
   completed: number
   upcoming: number
   today: number
+  overdue: number
   conflictCount: number
   nextInspection?: Inspection
 }
@@ -196,7 +198,7 @@ export type ManagerScheduleOverview = {
   missingManagerCount: number
 }
 
-export type InspectionAlertType = "conflict" | "today" | "tomorrow" | "upcoming"
+export type InspectionAlertType = "conflict" | "overdue" | "today" | "tomorrow" | "upcoming"
 export type InspectionAlert = {
   id: string
   type: InspectionAlertType
@@ -218,6 +220,7 @@ export const defaultScheduleExplorerFilters: ScheduleExplorerFilters = {
   status: "all",
   query: "",
   conflictOnly: false,
+  overdueOnly: false,
 }
 
 export function hasInspectionAssignment(inspection: Pick<Inspection, "assignedManagerId" | "scheduledDate" | "scheduledTime">) {
@@ -326,7 +329,7 @@ export function validateScheduleExplorerFilters(filters: Pick<ScheduleExplorerFi
   return { valid: true as const }
 }
 
-export function filterInspectionSchedule(items: Inspection[], filters: ScheduleExplorerFilters) {
+export function filterInspectionSchedule(items: Inspection[], filters: ScheduleExplorerFilters, now = new Date()) {
   if (!validateScheduleExplorerFilters(filters).valid) return []
   const query = filters.query.trim().toLocaleLowerCase()
   const conflictIds = filters.conflictOnly ? new Set(getScheduleConflictGroups(items).flatMap((group) => group.inspections.map((item) => item.id))) : null
@@ -340,6 +343,7 @@ export function filterInspectionSchedule(items: Inspection[], filters: ScheduleE
     if (filters.startDate && (!item.scheduledDate || item.scheduledDate < filters.startDate)) return false
     if (filters.endDate && (!item.scheduledDate || item.scheduledDate > filters.endDate)) return false
     if (conflictIds && !conflictIds.has(item.id)) return false
+    if (filters.overdueOnly && !isInspectionOverdue(item, now)) return false
     if (query && ![item.address, item.inspectionType, item.memo].some((value) => value.toLocaleLowerCase().includes(query))) return false
     return true
   })
@@ -366,6 +370,22 @@ function localDateValue(date: Date) {
   return new Date(date.valueOf() - offset).toISOString().slice(0, 10)
 }
 
+export function getInspectionScheduledAt(inspection: Pick<Inspection, "assignedManagerId" | "scheduledDate" | "scheduledTime">) {
+  if (!hasInspectionAssignment(inspection)) return null
+  const scheduledAt = new Date(`${inspection.scheduledDate}T${inspection.scheduledTime}`)
+  return Number.isNaN(scheduledAt.valueOf()) ? null : scheduledAt
+}
+
+export function isInspectionOverdue(inspection: Inspection, now = new Date()) {
+  if (inspection.status === "completed") return false
+  const scheduledAt = getInspectionScheduledAt(inspection)
+  return scheduledAt !== null && scheduledAt.valueOf() < now.valueOf()
+}
+
+export function getOverdueInspections(inspections: Inspection[], now = new Date()) {
+  return inspections.filter((inspection) => isInspectionOverdue(inspection, now)).slice().sort(compareScheduledAt)
+}
+
 function localDateAfter(now: Date, days: number) {
   const date = new Date(now)
   date.setDate(date.getDate() + days)
@@ -374,13 +394,15 @@ function localDateAfter(now: Date, days: number) {
 
 const inspectionAlertPriority: Record<InspectionAlertType, number> = {
   conflict: 0,
-  today: 1,
-  tomorrow: 2,
-  upcoming: 3,
+  overdue: 1,
+  today: 2,
+  tomorrow: 3,
+  upcoming: 4,
 }
 
 const inspectionAlertMessage: Record<InspectionAlertType, string> = {
   conflict: "관리인 일정 충돌이 있는 점검입니다.",
+  overdue: "예정 시간이 지난 미완료 점검입니다.",
   today: "오늘 예정된 점검이 있습니다.",
   tomorrow: "내일 예정된 점검이 있습니다.",
   upcoming: "3일 이내 예정된 점검이 있습니다.",
@@ -403,7 +425,7 @@ export function createInspectionAlerts(inspections: Inspection[], _managers: Arr
     }
     if (conflictIds.has(inspection.id)) alerts.push({ id: `alert-${inspection.id}-conflict`, type: "conflict", message: inspectionAlertMessage.conflict, ...base })
     if (inspection.status === "completed") return
-    const type = inspection.scheduledDate === today ? "today" : inspection.scheduledDate === tomorrow ? "tomorrow" : upcomingDates.has(inspection.scheduledDate as string) ? "upcoming" : null
+    const type = isInspectionOverdue(inspection, now) ? "overdue" : inspection.scheduledDate === today ? "today" : inspection.scheduledDate === tomorrow ? "tomorrow" : upcomingDates.has(inspection.scheduledDate as string) ? "upcoming" : null
     if (type) alerts.push({ id: `alert-${inspection.id}-${type}`, type, message: inspectionAlertMessage[type], ...base })
   })
 
@@ -411,13 +433,13 @@ export function createInspectionAlerts(inspections: Inspection[], _managers: Arr
 }
 
 export function getInspectionAlertCounts(alerts: InspectionAlert[]): InspectionAlertCounts {
-  return alerts.reduce<InspectionAlertCounts>((counts, alert) => ({ ...counts, [alert.type]: counts[alert.type] + 1 }), { conflict: 0, today: 0, tomorrow: 0, upcoming: 0 })
+  return alerts.reduce<InspectionAlertCounts>((counts, alert) => ({ ...counts, [alert.type]: counts[alert.type] + 1 }), { conflict: 0, overdue: 0, today: 0, tomorrow: 0, upcoming: 0 })
 }
 
 function isUpcomingInspection(item: Inspection, now: Date) {
   if (item.status === "completed" || !hasInspectionAssignment(item)) return false
-  const scheduledAt = new Date(`${item.scheduledDate}T${item.scheduledTime}`)
-  return !Number.isNaN(scheduledAt.valueOf()) && scheduledAt.valueOf() >= now.valueOf()
+  const scheduledAt = getInspectionScheduledAt(item)
+  return scheduledAt !== null && scheduledAt.valueOf() >= now.valueOf()
 }
 
 export function createManagerScheduleSummary(managers: Array<{ id: string }>, inspections: Inspection[], now = new Date()): ManagerScheduleSummary[] {
@@ -435,6 +457,7 @@ export function createManagerScheduleSummary(managers: Array<{ id: string }>, in
       completed: assigned.filter((item) => item.status === "completed").length,
       upcoming: scheduled.filter((item) => isUpcomingInspection(item, now)).length,
       today: scheduled.filter((item) => item.scheduledDate === today).length,
+      overdue: scheduled.filter((item) => isInspectionOverdue(item, now)).length,
       conflictCount: conflictGroups.filter((group) => group.managerId === manager.id).reduce((count, group) => count + group.inspections.length, 0),
       nextInspection,
     }
@@ -451,7 +474,7 @@ export function calculateManagerScheduleOverview(managers: Array<{ id: string }>
 }
 
 export function filterManagerScheduleSummary(summaries: ManagerScheduleSummary[], filter: ManagerWorkloadFilter) {
-  return summaries.filter((summary) => filter === "all" || (filter === "has-schedule" ? summary.scheduled > 0 : filter === "today" ? summary.today > 0 : summary.conflictCount > 0))
+  return summaries.filter((summary) => filter === "all" || (filter === "has-schedule" ? summary.scheduled > 0 : filter === "today" ? summary.today > 0 : filter === "overdue" ? summary.overdue > 0 : summary.conflictCount > 0))
 }
 
 export function saveInspectionAssignment(inspection: Inspection, assignment: InspectionAssignment, managerIds: string[], today?: string, items: Inspection[] = []) {
